@@ -1,0 +1,29 @@
+# Visualizing blackouts in Houston, Texas after the 2021 winter storms
+
+## Load Libraries
+
+```{r}
+# Initialize libraries
+library(terra)
+library(tidyverse)
+library(tmap)
+library(sf)
+library(stars)
+```
+
+## Load data
+```{r}
+# Load satelite data
+data_dir <- here::here("data/VNP46A1/")
+
+
+band_files <- list.files(data_dir,
+                         pattern = "\\.tif$",
+                         full.names = TRUE,
+                         ignore.case = TRUE) |>
+  sort()
+
+landsat <- rast(band_files)
+names(landsat) <- c("blue", "green", "red", "NIR", "SWIR1", "SWIR2")
+
+```
