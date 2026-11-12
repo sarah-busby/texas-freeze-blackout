@@ -17,13 +17,51 @@ library(stars)
 data_dir <- here::here("data/VNP46A1/")
 
 
-band_files <- list.files(data_dir,
-                         pattern = "\\.tif$",
+satellite_files <- list.files(data_dir,
+                         pattern = "\\.TIF$",
                          full.names = TRUE,
                          ignore.case = TRUE) |>
   sort()
 
-landsat <- rast(band_files)
-names(landsat) <- c("blue", "green", "red", "NIR", "SWIR1", "SWIR2")
+tile5_pre <- read_stars(satellite_files[1])
+tile6_pre <- read_stars(satellite_files[2])
+tile5_post <- read_stars(satellite_files[3])
+tile6_post <- read_stars(satellite_files[4])
 
+# Merge satellite images
+pre_lights <- st_mosaic(tile5_pre, tile6_pre)
+post_lights <- st_mosaic(tile5_post, tile6_post)
+
+if(st_crs(pre_lights) != st_crs(post_lights)){
+  warning("Coordinate refrence systems do not match. CRS transformed to match")
+  post_lights <- st_set_crs(post_lights, "EPSG:4326")
+  }
+```
+
+```{r}
+# Load road data
+roads <- st_read(here::here("data/gis_osm_roads_free_1.gpkg/gis_osm_roads_free_1.gpkg"))
+
+if(st_crs(pre_lights) != st_crs(roads)){
+  warning("Coordinate refrence systems do not match. CRS transformed to match saelite data")
+  roads <- st_set_crs(roads, "EPSG:4326")
+  }
+```
+
+```{r}
+# Load houses data
+houses <- st_read(here::here("data/gis_osm_buildings_a_free_1.gpkg/gis_osm_buildings_a_free_1.gpkg"))
+
+if(st_crs(pre_lights) != st_crs(houses)){
+  warning("Coordinate refrence systems do not match. CRS transformed to match saelite data")
+  houses <- st_set_crs(houses, "EPSG:4326")
+  }
+```
+
+## Create blackout mask
+
+```{r}
+
+plot(pre_lights)
+plot(post_lights)
 ```
