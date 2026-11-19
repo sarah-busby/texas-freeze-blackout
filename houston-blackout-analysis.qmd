@@ -40,7 +40,7 @@ if(st_crs(pre_lights) != st_crs(post_lights)){
 
 ```{r}
 # Load road data
-roads <- st_read(here::here("data/gis_osm_roads_free_1.gpkg/gis_osm_roads_free_1.gpkg"))
+roads <- st_read(here::here("data/gis_osm_roads_free_1.gpkg/gis_osm_roads_free_1.gpkg"), query = "SELECT * FROM gis_osm_roads_free_1 WHERE fclass='motorway'")
 
 if(st_crs(pre_lights) != st_crs(roads)){
   warning("Coordinate refrence systems do not match. CRS transformed to match saelite data")
@@ -50,7 +50,9 @@ if(st_crs(pre_lights) != st_crs(roads)){
 
 ```{r}
 # Load houses data
-houses <- st_read(here::here("data/gis_osm_buildings_a_free_1.gpkg/gis_osm_buildings_a_free_1.gpkg"))
+houses <- st_read(here::here("data/gis_osm_buildings_a_free_1.gpkg/gis_osm_buildings_a_free_1.gpkg"), 
+                  query = "SELECT * FROM gis_osm_buildings_a_free_1` WHERE (type IS NULL AND name IS NULL)` OR type in ('residential', 'apartments', 'house', 'static_caravan', 'detached')"
+                 )
 
 if(st_crs(pre_lights) != st_crs(houses)){
   warning("Coordinate refrence systems do not match. CRS transformed to match saelite data")
