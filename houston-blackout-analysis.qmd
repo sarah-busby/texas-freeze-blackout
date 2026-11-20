@@ -42,8 +42,8 @@ if(st_crs(pre_lights) != st_crs(post_lights)){
 # Load road data
 roads <- st_read(here::here("data/gis_osm_roads_free_1.gpkg/gis_osm_roads_free_1.gpkg"), query = "SELECT * FROM gis_osm_roads_free_1 WHERE fclass='motorway'")
 
-if(st_crs(pre_lights) != st_crs(roads)){
-  warning("Coordinate refrence systems do not match. CRS transformed to match saelite data")
+if(st_crs(roads) != st_crs(pre_lights)){
+  warning("Coordinate refrence systems do not match. CRS transformed to match")
   roads <- st_set_crs(roads, "EPSG:4326")
   }
 ```
@@ -54,39 +54,49 @@ houses <- st_read(here::here("data/gis_osm_buildings_a_free_1.gpkg/gis_osm_build
                   query = "SELECT * FROM gis_osm_buildings_a_free_1 WHERE (type IS NULL AND name IS NULL) OR type in ('residential', 'apartments', 'house', 'static_caravan', 'detached')"
                  )
 
-if(st_crs(pre_lights) != st_crs(houses)){
-  warning("Coordinate refrence systems do not match. CRS transformed to match saelite data")
+if(st_crs(houses) != st_crs(pre_lights)){
+  warning("Coordinate refrence systems do not match. CRS transformed to match")
   houses <- st_set_crs(houses, "EPSG:4326")
   }
 ```
 
-## Create blackout mask
+## Map light intensities before and after storms
 
 ```{r}
-tm_shape(pre_lights) +
-  tm_raster(col.scale = tm_scale_rank(values = "brewer.greys"))
-plot(pre_lights)
+# Set houston bbox
+houston_bbox <- st_bbox(c(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5), crs = st_crs(pre_lights))
+
+# Map night lights in Houston
+map1 <- tm_shape(pre_lights, bbox=houston_bbox) +
+          tm_raster(col.scale = tm_scale_continuous_log1p(values = "inferno"),
+                    col.legend = tm_legend(title = "Radiance\n(nW cm-2 sr-1)")) +
+          tm_title("Pre-storms (02/07/2021)")
+
+map2 <- tm_shape(post_lights, bbox=houston_bbox) +
+          tm_raster(col.scale = tm_scale_continuous_log1p(values = "inferno"),
+                    col.legend = tm_legend(title = "Radiance\n(nW cm-2 sr-1)")) +
+          tm_title("Post-storms (02/16/2021)")
+
+
+tmap_arrange(map1, map2, ncol=2)
 ```
 
 
 ```{r}
 # Find difference in values
-light_difference <- pre_lights - post_lights
+light_difference <- pre_lights[1] - post_lights[1]
 
 # Create blackout mask
 blackout <- light_difference
 blackout[blackout < 200] <- NA
 
 # Crop mask to Houston
-houston_bbox <- st_bbox(c(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5), crs = st_crs(blackout))
 houston_blackout <- st_set_bbox(blackout, houston_bbox)
 
-# Vectorize
-houston_blackout <- st_as_sf(houston_blackout) |> st_make_valid()
-
-# Reproject to Texas CRS
-houston_blackout <- st_transform(houston_blackout, 3083)
-
+# Vectorize and reproject to texas CRS
+houston_blackout <- st_as_sf(houston_blackout) |> 
+  st_make_valid() |> 
+  st_transform(3083)
 
 # Check it worked
 tm_basemap(server = "Esri.WorldTopoMap") +
@@ -96,11 +106,34 @@ tm_shape(houston_blackout) +
 ```
 
 ```{r}
+# Exclude highways
 highways <- st_union(roads) |> st_buffer(dist = units::set_units(200, "m")) |> st_transform(3083)
+
+blackout_no_hw <- st_difference(houston_blackout, highways) 
+
 tm_basemap(server = "Esri.WorldTopoMap") +
-  tm_shape(houston_blackout) +
-  tm_polygons() +
-  tm_shape(highways) +
+  tm_shape(blackout_no_hw) +
   tm_polygons()
+
+tm_basemap(server = "Esri.WorldTopoMap") +
+  tm_shape(highways) +
+  tm_polygons() +
+  tm_scalebar()
+plot(highways)
+```
+
+```{r}
+# Find houses affected by blackout
+houses <- st_transform(houses, 3083)
+blackout_houses <- st_filter(houses, blackout_no_hw, .predicate = st_intersects)
+
+# Map houses
+tm_basemap(server = "Esri.WorldTopoMap") +
+  tm_shape(blackout_houses) +
+  tm_dots()
+```
+
+```{r}
+nrow(blackout_houses)
 ```
 
