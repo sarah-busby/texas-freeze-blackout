@@ -21,7 +21,7 @@ satellite_files <- list.files(data_dir,
                          pattern = "\\.TIF$",
                          full.names = TRUE,
                          ignore.case = TRUE) |>
-  sort()
+                          sort()
 
 tile5_pre <- read_stars(satellite_files[1])
 tile6_pre <- read_stars(satellite_files[2])
@@ -51,7 +51,7 @@ if(st_crs(pre_lights) != st_crs(roads)){
 ```{r}
 # Load houses data
 houses <- st_read(here::here("data/gis_osm_buildings_a_free_1.gpkg/gis_osm_buildings_a_free_1.gpkg"), 
-                  query = "SELECT * FROM gis_osm_buildings_a_free_1` WHERE (type IS NULL AND name IS NULL)` OR type in ('residential', 'apartments', 'house', 'static_caravan', 'detached')"
+                  query = "SELECT * FROM gis_osm_buildings_a_free_1 WHERE (type IS NULL AND name IS NULL) OR type in ('residential', 'apartments', 'house', 'static_caravan', 'detached')"
                  )
 
 if(st_crs(pre_lights) != st_crs(houses)){
@@ -63,7 +63,44 @@ if(st_crs(pre_lights) != st_crs(houses)){
 ## Create blackout mask
 
 ```{r}
-
+tm_shape(pre_lights) +
+  tm_raster(col.scale = tm_scale_rank(values = "brewer.greys"))
 plot(pre_lights)
-plot(post_lights)
 ```
+
+
+```{r}
+# Find difference in values
+light_difference <- pre_lights - post_lights
+
+# Create blackout mask
+blackout <- light_difference
+blackout[blackout < 200] <- NA
+
+# Crop mask to Houston
+houston_bbox <- st_bbox(c(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5), crs = st_crs(blackout))
+houston_blackout <- st_set_bbox(blackout, houston_bbox)
+
+# Vectorize
+houston_blackout <- st_as_sf(houston_blackout) |> st_make_valid()
+
+# Reproject to Texas CRS
+houston_blackout <- st_transform(houston_blackout, 3083)
+
+
+# Check it worked
+tm_basemap(server = "Esri.WorldTopoMap") +
+tm_shape(houston_blackout) +
+  tm_polygons()
+
+```
+
+```{r}
+highways <- st_union(roads) |> st_buffer(dist = units::set_units(200, "m")) |> st_transform(3083)
+tm_basemap(server = "Esri.WorldTopoMap") +
+  tm_shape(houston_blackout) +
+  tm_polygons() +
+  tm_shape(highways) +
+  tm_polygons()
+```
+
