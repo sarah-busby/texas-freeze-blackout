@@ -1,7 +1,15 @@
-# Visualizing blackouts in Houston, Texas after the 2021 winter storms
+---
+title: Visualizing blackouts in Houston, Texas after the 2021 winter storms
+subtitle: EDS 223 HW Assignment \#4
+author: Sarah Busby
+date: 11/22/2026
+format:
+  pdf:
+    colorlinks: true
+---
+This analysis aims to visualize the power outage impacts of the 2021 Texas winter storms. First, radiance from Houston, Texas will be plotted before and after the series of storms. Then, the difference in radiances will be used to determine which areas experienced blackouts and approximately how many homes were affected. Places within 200 meters of highways will be excluded due to fluctuating radiances across these roads.
 
 ## Load Libraries
-
 ```{r}
 # Initialize libraries
 library(terra)
@@ -12,25 +20,22 @@ library(stars)
 ```
 
 ## Load data
+Since Houston falls between two satelitte tiles, both tiles are read in and merged to get full coverage of the area of interest before and after. Roads and buildings from OpenStreetMap are loaded to determine homes impacted by the blackouts.
+
 ```{r}
-# Load satelite data
+# Load satelitte data
 data_dir <- here::here("data/VNP46A1/")
 
 
 satellite_files <- list.files(data_dir,
-                         pattern = "\\.TIF$",
-                         full.names = TRUE,
-                         ignore.case = TRUE) |>
-                          sort()
+                              pattern = "\\.TIF$",
+                              full.names = TRUE,
+                              ignore.case = TRUE) |>
+                                sort()
 
-tile5_pre <- read_stars(satellite_files[1])
-tile6_pre <- read_stars(satellite_files[2])
-tile5_post <- read_stars(satellite_files[3])
-tile6_post <- read_stars(satellite_files[4])
-
-# Merge satellite images
-pre_lights <- st_mosaic(tile5_pre, tile6_pre)
-post_lights <- st_mosaic(tile5_post, tile6_post)
+# Combine tiles 5 and 6
+pre_lights <- st_mosaic(read_stars(satellite_files[1]), read_stars(satellite_files[2]))
+post_lights <- st_mosaic(read_stars(satellite_files[3]), read_stars(satellite_files[4]))
 
 if(st_crs(pre_lights) != st_crs(post_lights)){
   warning("Coordinate refrence systems do not match. CRS transformed to match")
@@ -40,27 +45,34 @@ if(st_crs(pre_lights) != st_crs(post_lights)){
 
 ```{r}
 # Load road data
-roads <- st_read(here::here("data/gis_osm_roads_free_1.gpkg/gis_osm_roads_free_1.gpkg"), query = "SELECT * FROM gis_osm_roads_free_1 WHERE fclass='motorway'")
+roads <- st_read(here::here("data/gis_osm_roads_free_1.gpkg/gis_osm_roads_free_1.gpkg"),
+                 # Select only motorways from dataset
+                 query = "SELECT * FROM gis_osm_roads_free_1 WHERE fclass='motorway'") |> 
+                  # Transform to Texas-centered CRS
+                  st_transform(3083)
 
-if(st_crs(roads) != st_crs(pre_lights)){
-  warning("Coordinate refrence systems do not match. CRS transformed to match")
-  roads <- st_set_crs(roads, "EPSG:4326")
+if(st_crs(roads) != st_crs(3083)){
+  warning("Coordinate refrence systems do not match. CRS transformed to 3083")
+  roads <- st_set_crs(roads, "EPSG:3083")
   }
 ```
 
 ```{r}
-# Load houses data
+# Load building data
 houses <- st_read(here::here("data/gis_osm_buildings_a_free_1.gpkg/gis_osm_buildings_a_free_1.gpkg"), 
-                  query = "SELECT * FROM gis_osm_buildings_a_free_1 WHERE (type IS NULL AND name IS NULL) OR type in ('residential', 'apartments', 'house', 'static_caravan', 'detached')"
-                 )
+                  # Select only residential buildings
+                  query = "SELECT * FROM gis_osm_buildings_a_free_1 WHERE (type IS NULL AND name IS NULL) OR type in ('residential', 'apartments', 'house', 'static_caravan', 'detached')") |> 
+                    # Transform to Texas-centered CRS
+                    st_transform(3083)
 
-if(st_crs(houses) != st_crs(pre_lights)){
+if(st_crs(houses) != st_crs(3083)){
   warning("Coordinate refrence systems do not match. CRS transformed to match")
-  houses <- st_set_crs(houses, "EPSG:4326")
+  houses <- st_set_crs(houses, "EPSG:3083")
   }
 ```
 
 ## Map light intensities before and after storms
+Satelitte radiance rasters are cropped to Houston and mapped before and after the storms. The color scale is shaded to a logarithmic scale to account for extreme variance in values.
 
 ```{r}
 # Set houston bbox
@@ -70,70 +82,69 @@ houston_bbox <- st_bbox(c(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5), c
 map1 <- tm_shape(pre_lights, bbox=houston_bbox) +
           tm_raster(col.scale = tm_scale_continuous_log1p(values = "inferno"),
                     col.legend = tm_legend(title = "Radiance\n(nW cm-2 sr-1)")) +
-          tm_title("Pre-storms (02/07/2021)")
+          tm_title("Houston radiance pre-storms (02/07/2021)")
 
 map2 <- tm_shape(post_lights, bbox=houston_bbox) +
           tm_raster(col.scale = tm_scale_continuous_log1p(values = "inferno"),
                     col.legend = tm_legend(title = "Radiance\n(nW cm-2 sr-1)")) +
-          tm_title("Post-storms (02/16/2021)")
+          tm_title("Houston radiance post-storms (02/16/2021)")
 
 
 tmap_arrange(map1, map2, ncol=2)
 ```
 
+## Calculate blackout zones
+Next, blackout zones are assigned to anywhere that experienced a drop of 200 nW cm-2 sr-1 or greater after the storm.
 
 ```{r}
-# Find difference in values
+# Find difference in radiance before and after
 light_difference <- pre_lights[1] - post_lights[1]
 
+# Reclassify blackout zones as 1, else 0
+blackout <- (light_difference > 200) * 1
+
 # Create blackout mask
-blackout <- light_difference
-blackout[blackout < 200] <- NA
+blackout[blackout == 0] <- NA
 
 # Crop mask to Houston
 houston_blackout <- st_set_bbox(blackout, houston_bbox)
 
-# Vectorize and reproject to texas CRS
+# Vectorize and reproject to Texas CRS
 houston_blackout <- st_as_sf(houston_blackout) |> 
   st_make_valid() |> 
   st_transform(3083)
-
-# Check it worked
-tm_basemap(server = "Esri.WorldTopoMap") +
-tm_shape(houston_blackout) +
-  tm_polygons()
-
 ```
 
-```{r}
-# Exclude highways
-highways <- st_union(roads) |> st_buffer(dist = units::set_units(200, "m")) |> st_transform(3083)
+## Exclude highways
+A 200 meter buffer around Houston highways is created to exclude radiance due to traffic.
 
+```{r}
+# Create 200m highway buffer
+highways <- st_union(roads) |> st_buffer(dist = units::set_units(200, "m"))
+
+# Exclude areas within highway buffer
 blackout_no_hw <- st_difference(houston_blackout, highways) 
-
-tm_basemap(server = "Esri.WorldTopoMap") +
-  tm_shape(blackout_no_hw) +
-  tm_polygons()
-
-tm_basemap(server = "Esri.WorldTopoMap") +
-  tm_shape(highways) +
-  tm_polygons() +
-  tm_scalebar()
-plot(highways)
 ```
 
+## Calculate Houston homes in blackout zones
 ```{r}
-# Find houses affected by blackout
-houses <- st_transform(houses, 3083)
+# Find homes affected by blackout
 blackout_houses <- st_filter(houses, blackout_no_hw, .predicate = st_intersects)
 
 # Map houses
 tm_basemap(server = "Esri.WorldTopoMap") +
   tm_shape(blackout_houses) +
-  tm_dots()
+  tm_dots(fill_alpha = 0.25, fill = 'red') +
+  tm_title("Houston homes in blackout zones\nafter 2021 winter storms") +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_compass(position = c("right", "bottom")) 
 ```
 
+## Estimate number of homes affected by blackout
 ```{r}
+# Calculate number of homes affected 
 nrow(blackout_houses)
 ```
 
+## Reflection
+From the results of the analysis, Houston's nighttime radiance visibly decreases in certain patches across the city following the series of severe winter storms. It is important to note that weather during data collection may affect the amount of radiance captured by the satellite. Still, the resulting power outages can be seen when comparing before and after. When calculating homes impacted by these areas of power outages (defined by areas with a decreased radiance of 200 nW cm-2 sr-1 or more), an estimated 1,522 Houston homes were affected. The majority of these homes are clustered along the central, western neighborhoods of Houston. Noteably, any homes within 200 meters of a highway may be excluded from this number, since highway areas were ignored to account for radiance differences due to traffic patterns. Additionally, the buildings included in the analysis include unlabeled building types which could result in a few non-residential buildings included in the total.
